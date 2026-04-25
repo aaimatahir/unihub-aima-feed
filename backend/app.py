@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from supabase import create_client
+import requests as req
 import os
 from dotenv import load_dotenv
 
@@ -9,41 +9,43 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-supabase = create_client(
-    os.getenv('SUPABASE_URL'),
-    os.getenv('SUPABASE_KEY')
-)
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+HEADERS = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': f'Bearer {SUPABASE_KEY}',
+    'Content-Type': 'application/json'
+}
 
 @app.route('/api/shops', methods=['GET'])
 def get_shops():
-    search   = request.args.get('search', '')
-    category = request.args.get('category', '')
-    sort     = request.args.get('sort', 'newest')
-    page     = int(request.args.get('page', 0))
+    search    = request.args.get('search', '')
+    category  = request.args.get('category', '')
+    sort      = request.args.get('sort', 'newest')
+    page      = int(request.args.get('page', 0))
     page_size = 9
 
-    query = supabase.from_('shops').select(
-        '*, profiles(name, profile_image)', count='exact'
-    )
+    params = {
+        'select': '*,profiles(name,profile_image)',
+        'order': 'created_at.desc' if sort != 'top_rated' else 'average_rating.desc',
+        'offset': page * page_size,
+        'limit': page_size
+    }
 
     if search:
-        query = query.or_(f'title.ilike.%{search}%,description.ilike.%{search}%,category.ilike.%{search}%')
+        params['or'] = f'(title.ilike.%{search}%,description.ilike.%{search}%,category.ilike.%{search}%)'
 
     if category and category != 'All':
-        query = query.eq('category', category)
+        params['category'] = f'eq.{category}'
 
-    if sort == 'top_rated':
-        query = query.order('average_rating', desc=True)
-    else:
-        query = query.order('created_at', desc=True)
+    headers = {**HEADERS, 'Prefer': 'count=exact'}
+    response = req.get(f'{SUPABASE_URL}/rest/v1/shops', headers=headers, params=params)
 
-    query = query.range(page * page_size, (page + 1) * page_size - 1)
-
-    response = query.execute()
+    count = int(response.headers.get('content-range', '0/0').split('/')[-1])
 
     return jsonify({
-        'shops': response.data,
-        'count': response.count
+        'shops': response.json(),
+        'count': count
     })
 
 

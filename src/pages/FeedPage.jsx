@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
+import { supabase } from '../supabaseClient'
 import ShopCard from '../components/ShopCard'
 import '../styles/FeedPage.css'
 
 const CATEGORIES = ['All', 'Art', 'Design', 'Photography', 'Writing', 'Music', 'Video', 'Tech']
 const PAGE_SIZE = 9
-const API_URL = 'http://localhost:5000'
 
 export default function FeedPage() {
   const [shops, setShops] = useState([])
@@ -20,31 +20,44 @@ export default function FeedPage() {
     setLoading(true)
     const currentPage = reset ? 0 : page
 
-    const params = new URLSearchParams({
-      search: search.trim(),
-      category: activeCategory,
-      sort: sortBy,
-      page: currentPage
-    })
+    let query = supabase
+      .from('shops')
+      .select('*, profiles!owner_id ( name, profile_image )', { count: 'exact' })
 
-    try {
-      const res = await fetch(`${API_URL}/api/shops?${params}`)
-      const json = await res.json()
+    if (search.trim()) {
+      query = query.or(
+        `title.ilike.%${search.trim()}%,description.ilike.%${search.trim()}%,category.ilike.%${search.trim()}%`
+      )
+    }
 
-      const data = json.shops ?? []
-      const count = json.count ?? 0
+    if (activeCategory !== 'All') {
+      query = query.eq('category', activeCategory)
+    }
 
-      setTotalCount(count)
-      setHasMore((currentPage + 1) * PAGE_SIZE < count)
+    if (sortBy === 'top_rated') {
+      query = query.order('average_rating', { ascending: false })
+    } else {
+      query = query.order('created_at', { ascending: false })
+    }
 
-      if (reset) {
-        setShops(data)
-        setPage(0)
-      } else {
-        setShops(prev => currentPage === 0 ? data : [...prev, ...data])
-      }
-    } catch (err) {
-      console.error('Error fetching shops:', err)
+    query = query.range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
+
+    const { data, error, count } = await query
+
+    if (error) {
+      console.error('Error:', error.message)
+      setLoading(false)
+      return
+    }
+
+    setTotalCount(count ?? 0)
+    setHasMore((currentPage + 1) * PAGE_SIZE < (count ?? 0))
+
+    if (reset) {
+      setShops(data ?? [])
+      setPage(0)
+    } else {
+      setShops(prev => currentPage === 0 ? (data ?? []) : [...prev, ...(data ?? [])])
     }
 
     setLoading(false)
