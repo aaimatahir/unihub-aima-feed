@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
-import { supabase } from '../supabaseClient'
 import ShopCard from '../components/ShopCard'
 import '../styles/FeedPage.css'
 
 const CATEGORIES = ['All', 'Art', 'Design', 'Photography', 'Writing', 'Music', 'Video', 'Tech']
 const PAGE_SIZE = 9
+const API_URL = 'http://localhost:5000'
 
 export default function FeedPage() {
   const [shops, setShops] = useState([])
@@ -20,47 +20,31 @@ export default function FeedPage() {
     setLoading(true)
     const currentPage = reset ? 0 : page
 
-    let query = supabase
-      .from('shops')
-      .select(`
-        *,
-        profiles ( name, profile_image )
-      `, { count: 'exact' })
+    const params = new URLSearchParams({
+      search: search.trim(),
+      category: activeCategory,
+      sort: sortBy,
+      page: currentPage
+    })
 
-    if (search.trim()) {
-      query = query.or(
-        `title.ilike.%${search.trim()}%,description.ilike.%${search.trim()}%,category.ilike.%${search.trim()}%`
-      )
-    }
+    try {
+      const res = await fetch(`${API_URL}/api/shops?${params}`)
+      const json = await res.json()
 
-    if (activeCategory !== 'All') {
-      query = query.eq('category', activeCategory)
-    }
+      const data = json.shops ?? []
+      const count = json.count ?? 0
 
-    if (sortBy === 'newest') {
-      query = query.order('created_at', { ascending: false })
-    } else if (sortBy === 'top_rated') {
-      query = query.order('average_rating', { ascending: false })
-    }
+      setTotalCount(count)
+      setHasMore((currentPage + 1) * PAGE_SIZE < count)
 
-    query = query.range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
-
-    const { data, error, count } = await query
-
-    if (error) {
-      console.error('Error fetching shops:', error.message)
-      setLoading(false)
-      return
-    }
-
-    setTotalCount(count ?? 0)
-    setHasMore((currentPage + 1) * PAGE_SIZE < (count ?? 0))
-
-    if (reset) {
-      setShops(data ?? [])
-      setPage(0)
-    } else {
-      setShops(prev => currentPage === 0 ? (data ?? []) : [...prev, ...(data ?? [])])
+      if (reset) {
+        setShops(data)
+        setPage(0)
+      } else {
+        setShops(prev => currentPage === 0 ? data : [...prev, ...data])
+      }
+    } catch (err) {
+      console.error('Error fetching shops:', err)
     }
 
     setLoading(false)
